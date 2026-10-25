@@ -1,0 +1,103 @@
+/* Social Auto Post — admin screens */
+
+.sap-wrap .sap-tab-body { margin-top: 20px; }
+
+.sap-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 4px 20px 20px;
+	margin: 0 0 20px;
+	max-width: 860px;
+}
+
+.sap-card h2 { margin-top: 16px; }
+
+.sap-muted { color: #646970; }
+
+.sap-callout {
+	background: #f6f7f7;
+	border-left: 4px solid #2271b1;
+	padding: 12px 14px;
+	margin: 16px 0;
+}
+
+.sap-code {
+	display: inline-block;
+	margin-top: 6px;
+	padding: 6px 8px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	word-break: break-all;
+}
+
+.sap-status { font-size: 14px; }
+.sap-status--ok::before { content: "\2713"; color: #00a32a; margin-right: 6px; font-weight: 700; }
+
+.sap-inline { display: inline-block; margin: 0 16px 6px 0; }
+
+.sap-scrollbox {
+	max-height: 170px;
+	overflow-y: auto;
+	border: 1px solid #dcdcde;
+	padding: 10px;
+	background: #fff;
+}
+
+.sap-tokens { margin: 6px 0 12px; }
+.sap-tokens li { margin: 0 0 4px; color: #646970; }
+.sap-tokens code { margin-right: 6px; }
+
+.sap-usage { font-size: 18px; margin-bottom: 6px; }
+.sap-usage strong { font-size: 26px; }
+
+.sap-meter {
+	background: #e0e0e0;
+	border-radius: 10px;
+	height: 10px;
+	overflow: hidden;
+	max-width: 420px;
+}
+.sap-meter span { display: block; height: 100%; background: #2271b1; }
+
+.sap-log__time { white-space: nowrap; color: #646970; }
+.sap-log__clear { margin-top: 14px; }
+
+.sap-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 10px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	background: #f0f0f1;
+	color: #3c434a;
+}
+.sap-badge--success { background: #edfaef; color: #00662a; }
+.sap-badge--warning { background: #fcf6e1; color: #8a6400; }
+.sap-badge--error   { background: #fcf0f1; color: #a00; }
+
+/* Editor meta box */
+.sap-box__status { font-weight: 600; margin-top: 0; }
+.sap-box__status--ok { color: #00662a; }
+.sap-box__status--pending { color: #8a6400; }
+.sap-box__status--error { color: #a00; }
+
+.sap-box__error {
+	background: #fcf0f1;
+	border-left: 3px solid #a00;
+	padding: 8px 10px;
+	font-size: 12px;
+}
+
+.sap-box__preview { margin-top: 14px; }
+.sap-box__preview-text {
+	display: block;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	padding: 8px 10px;
+	margin: 4px 0;
+	font-size: 12px;
+	line-height: 1.5;
+	word-break: break-word;
+}

@@ -1,0 +1,24 @@
+/* Social Auto Post — the Socials block on the front end.
+   Deliberately minimal: inherit the theme's type and colour rather than
+   fight it, and only set the structure the block needs. */
+
+.sap-socials { margin: 2em 0; }
+
+.sap-socials__title {
+	margin: 0 0 .5em;
+	font-size: 1.05em;
+}
+
+.sap-socials__list {
+	list-style: disc;
+	margin: 0;
+	padding-left: 1.5em;
+}
+
+.sap-socials__item { margin: 0 0 .35em; }
+
+.sap-socials__label { font-weight: 400; }
+
+.sap-socials__link { text-decoration: none; }
+.sap-socials__link:hover,
+.sap-socials__link:focus { text-decoration: underline; }
