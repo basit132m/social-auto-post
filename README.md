@@ -87,6 +87,37 @@ set whichever rules you want. Nothing is shared until this is on.
 
 ---
 
+## Posts you published before installing
+
+Posts that were already live never saw a "published" moment while the plugin
+was running, so nothing shares them automatically. **Editing one does not share
+it either, and that is deliberate** — otherwise fixing a typo on a 2019 article
+would tweet it as though it were new, and a bulk edit across a back catalogue
+would empty your monthly allowance in one go.
+
+To share them on purpose there are three routes:
+
+| Route | Good for |
+|---|---|
+| **Social Auto Post → Existing posts** | The whole back catalogue at once |
+| **Posts list → bulk action "Share to X"** | A hand-picked selection |
+| **Posts list → row link "Share to X"** | One article |
+
+The **Existing posts** tab counts everything published but never shared, shows
+the next ten so you can sanity check the selection, and queues them **spaced
+apart** — 10 minutes by default, set on the Posting rules tab. Firing fifty
+tweets in one minute is the quickest way to trip X's rate limiter and look like
+a bot; spreading them out costs nothing.
+
+It also compares the number waiting against what is left of your 500/month
+allowance, and warns you before you queue more than you can actually send.
+
+Posts already shared, posts marked *Do not share this post*, drafts, and posts
+your category rules exclude are all left out of the count and skipped if
+selected anyway.
+
+---
+
 ## Settings
 
 ### Posting rules
@@ -99,6 +130,7 @@ set whichever rules you want. Nothing is shared until this is on.
 | Never these categories | Exclusions beat inclusions. |
 | Delay | Minutes to wait before sharing, so you have a window to catch a typo. |
 | Retry attempts | How many times to retry a failure that looks temporary. |
+| Spacing for existing posts | Gap between posts when sharing a batch of older articles. |
 | Template | The tweet text. See placeholders below. |
 | Hashtags | Used by `{hashtags}`. Commas or spaces, `#` optional. |
 
@@ -171,6 +203,12 @@ defended in three independent places:
    wins and the other backs off. Stale locks are stolen after five minutes so a
    crashed run cannot wedge a post forever.
 
+Every route into publishing goes through the same checks — automatic sharing,
+*Share now*, the bulk action, and the Existing posts tab all end up in the same
+method, and each queued post is checked **again** at the moment it runs, not
+just when it was queued. Queueing the same post twice is a no-op: the second
+attempt finds either a recorded tweet id or a job already scheduled, and stops.
+
 There remains one window nothing can fully close: if the site dies *after* X
 accepts a tweet but *before* the id is written down, the retry will post again.
 That window is milliseconds wide, and the alternative — never retrying — loses
@@ -221,9 +259,10 @@ set up:
 ./tests/run.sh
 ```
 
-This covers the character fitting, the publish/retry/give-up cycle, token
-refresh, the eligibility rules, the Socials block, and — most importantly —
-that the same post cannot be tweeted twice.
+Four files, ~100 checks, covering the character fitting, the publish / retry /
+give-up cycle, token refresh, the eligibility rules, the Socials block, which
+status transitions share a post, back-catalogue queueing and spacing, and — most
+importantly — that the same post cannot be tweeted twice by any route.
 
 ---
 

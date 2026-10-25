@@ -40,6 +40,7 @@ class SAP_Settings {
 			'hashtags'           => '',
 			'delay_minutes'      => 0,
 			'max_attempts'       => 4,
+			'bulk_interval'      => 10,
 			'socials_enabled'    => true,
 			'socials_position'   => 'after_content',
 			'socials_title'      => 'Socials',

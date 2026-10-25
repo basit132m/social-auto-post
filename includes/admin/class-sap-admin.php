@@ -106,6 +106,7 @@ class SAP_Admin {
 			'connection' => __( 'Connection', 'social-auto-post' ),
 			'rules'      => __( 'Posting rules', 'social-auto-post' ),
 			'socials'    => __( 'Socials section', 'social-auto-post' ),
+			'backfill'   => __( 'Existing posts', 'social-auto-post' ),
 			'log'        => __( 'Activity log', 'social-auto-post' ),
 		);
 		if ( ! isset( $tabs[ $tab ] ) ) {
@@ -135,6 +136,9 @@ class SAP_Admin {
 				break;
 			case 'socials':
 				$this->tab_socials();
+				break;
+			case 'backfill':
+				$this->tab_backfill();
 				break;
 			case 'log':
 				$this->tab_log();
@@ -166,6 +170,7 @@ class SAP_Admin {
 			'saved'        => array( 'success', __( 'Settings saved.', 'social-auto-post' ) ),
 			'app_saved'    => array( 'success', __( 'App credentials saved. You can connect your account now.', 'social-auto-post' ) ),
 			'log_cleared'  => array( 'info', __( 'Activity log cleared.', 'social-auto-post' ) ),
+			'queued'       => array( 'success', __( 'Your existing posts are queued.', 'social-auto-post' ) ),
 		);
 
 		if ( 'error' === $notice ) {
@@ -338,6 +343,14 @@ class SAP_Admin {
 			esc_html__( 'How many times to retry a failure that looks temporary, backing off between tries.', 'social-auto-post' )
 		);
 
+		printf(
+			'<tr><th scope="row"><label for="sap_bulk_interval">%1$s</label></th><td><input type="number" min="0" max="240" id="sap_bulk_interval" name="bulk_interval" value="%2$d" class="small-text"> %3$s<p class="description">%4$s</p></td></tr>',
+			esc_html__( 'Spacing for existing posts', 'social-auto-post' ),
+			(int) $s['bulk_interval'],
+			esc_html__( 'minutes apart', 'social-auto-post' ),
+			esc_html__( 'Gap between posts when sharing a batch of older articles. Firing them all at once is the quickest way to trip X\'s rate limiter.', 'social-auto-post' )
+		);
+
 		echo '</tbody></table></div>';
 
 		echo '<div class="sap-card"><h2>' . esc_html__( 'What to post', 'social-auto-post' ) . '</h2>';
@@ -472,6 +485,138 @@ class SAP_Admin {
 		echo '</form>';
 	}
 
+	/* ------------------------------------------------------- tab: backfill */
+
+	/**
+	 * Existing posts tab: share a back catalogue that predates the plugin.
+	 *
+	 * @return void
+	 */
+	private function tab_backfill() {
+		$publisher = SAP_Publisher::instance();
+		$pending   = $publisher->find_unshared( -1 );
+		$total     = count( $pending );
+		$spacing   = (int) SAP_Settings::get( 'bulk_interval', 10 );
+		$remaining = max( 0, SAP_Settings::FREE_TIER_MONTHLY_POSTS - SAP_Settings::usage_this_month() );
+
+		echo '<div class="sap-card">';
+		echo '<h2>' . esc_html__( 'Share posts you published earlier', 'social-auto-post' ) . '</h2>';
+		echo '<p>' . esc_html__( 'Posts published before this plugin was installed were never shared, and editing them will not share them either — that is deliberate, so fixing a typo on an old article cannot tweet it. Use this to share them on purpose.', 'social-auto-post' ) . '</p>';
+
+		if ( 0 === $total ) {
+			echo '<p class="sap-status sap-status--ok">' . esc_html__( 'Nothing waiting — every published post has either been shared or is excluded by your rules.', 'social-auto-post' ) . '</p>';
+			echo '</div>';
+			return;
+		}
+
+		printf(
+			'<p class="sap-usage"><strong>%1$d</strong> %2$s</p>',
+			(int) $total,
+			esc_html(
+				_n( 'post has never been shared', 'posts have never been shared', $total, 'social-auto-post' )
+			)
+		);
+
+		if ( ! SAP_Settings::is_connected() ) {
+			echo '<p class="notice notice-warning sap-inline-notice">' . esc_html__( 'Connect your X account first.', 'social-auto-post' ) . '</p>';
+			echo '</div>';
+			return;
+		}
+
+		if ( $total > $remaining ) {
+			printf(
+				'<p class="notice notice-warning sap-inline-notice">%s</p>',
+				esc_html(
+					sprintf(
+						/* translators: 1: posts waiting, 2: posts left this month */
+						__( 'You have %1$d posts waiting but only %2$d left in this month\'s free X allowance. Share them in batches, or the rest will fail until the month rolls over.', 'social-auto-post' ),
+						$total,
+						$remaining
+					)
+				)
+			);
+		}
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		wp_nonce_field( 'sap_backfill' );
+		echo '<input type="hidden" name="action" value="sap_backfill">';
+
+		echo '<table class="form-table" role="presentation"><tbody>';
+		printf(
+			'<tr><th scope="row"><label for="sap_limit">%1$s</label></th><td><input type="number" min="1" max="%2$d" id="sap_limit" name="limit" value="%3$d" class="small-text"><p class="description">%4$s</p></td></tr>',
+			esc_html__( 'How many', 'social-auto-post' ),
+			(int) $total,
+			(int) min( $total, max( 1, $remaining ) ),
+			esc_html__( 'Oldest first. Run this again later for the rest.', 'social-auto-post' )
+		);
+		printf(
+			'<tr><th scope="row">%1$s</th><td>%2$s</td></tr>',
+			esc_html__( 'Spacing', 'social-auto-post' ),
+			esc_html(
+				sprintf(
+					/* translators: %d: minutes */
+					_n( '%d minute between posts', '%d minutes between posts', $spacing, 'social-auto-post' ),
+					$spacing
+				)
+			) . ' <a href="' . esc_url( self::page_url( 'rules' ) ) . '">' . esc_html__( 'change', 'social-auto-post' ) . '</a>'
+		);
+		echo '</tbody></table>';
+
+		submit_button( __( 'Queue these posts', 'social-auto-post' ) );
+		echo '</form>';
+
+		echo '<p class="description">' . esc_html__( 'Queued posts are shared one at a time in the background. Each is checked again before it goes out, so a post that has already been shared is never shared twice.', 'social-auto-post' ) . '</p>';
+		echo '</div>';
+
+		$this->preview_list( $pending );
+	}
+
+	/**
+	 * Show the first few posts that would be queued, so the admin can sanity
+	 * check the selection before committing to it.
+	 *
+	 * @param int[] $post_ids Candidate posts, oldest first.
+	 * @return void
+	 */
+	private function preview_list( array $post_ids ) {
+		$preview = array_slice( $post_ids, 0, 10 );
+		if ( empty( $preview ) ) {
+			return;
+		}
+
+		echo '<div class="sap-card"><h2>' . esc_html__( 'Next up', 'social-auto-post' ) . '</h2>';
+		echo '<table class="widefat striped"><thead><tr>';
+		echo '<th>' . esc_html__( 'Post', 'social-auto-post' ) . '</th>';
+		echo '<th>' . esc_html__( 'Published', 'social-auto-post' ) . '</th>';
+		echo '</tr></thead><tbody>';
+
+		foreach ( $preview as $post_id ) {
+			printf(
+				'<tr><td><a href="%1$s">%2$s</a></td><td class="sap-log__time">%3$s</td></tr>',
+				esc_url( (string) get_edit_post_link( $post_id ) ),
+				esc_html( get_the_title( $post_id ) ),
+				esc_html( (string) get_the_date( '', $post_id ) )
+			);
+		}
+
+		echo '</tbody></table>';
+
+		$extra = count( $post_ids ) - count( $preview );
+		if ( $extra > 0 ) {
+			printf(
+				'<p class="sap-muted">%s</p>',
+				esc_html(
+					sprintf(
+						/* translators: %d: number of further posts */
+						_n( 'and %d more', 'and %d more', $extra, 'social-auto-post' ),
+						$extra
+					)
+				)
+			);
+		}
+		echo '</div>';
+	}
+
 	/* ------------------------------------------------------------ tab: log */
 
 	/**
@@ -581,6 +726,9 @@ class SAP_Admin {
 			$changes['max_attempts']       = isset( $_POST['max_attempts'] )
 				? max( 1, min( 10, (int) $_POST['max_attempts'] ) )
 				: 4;
+			$changes['bulk_interval']      = isset( $_POST['bulk_interval'] )
+				? max( 0, min( 240, (int) $_POST['bulk_interval'] ) )
+				: 10;
 		}
 
 		if ( 'socials' === $tab ) {

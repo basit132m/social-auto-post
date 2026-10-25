@@ -101,3 +101,5 @@
 	line-height: 1.5;
 	word-break: break-word;
 }
+
+.sap-inline-notice { padding: 10px 12px; margin: 12px 0; }

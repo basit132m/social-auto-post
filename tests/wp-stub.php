@@ -56,7 +56,15 @@ function apply_filters($h, $v) { return $v; }
 function do_action($h, ...$a) { $GLOBALS['fired'][] = $h; }
 
 function wp_schedule_single_event($ts, $hook, $args = []) { $GLOBALS['cron'][] = ['ts' => $ts, 'hook' => $hook, 'args' => $args]; return true; }
-function wp_next_scheduled($h) { return false; }
+function wp_next_scheduled($h, $args = []) {
+    $best = false;
+    foreach ($GLOBALS['cron'] as $e) {
+        if ($e['hook'] !== $h) continue;
+        if ($args !== [] && $e['args'] !== $args) continue;
+        if ($best === false || $e['ts'] < $best) $best = $e['ts'];
+    }
+    return $best;
+}
 function wp_unschedule_event($t, $h) { return true; }
 function wp_clear_scheduled_hook($h) { return true; }
 
@@ -94,6 +102,46 @@ function get_the_ID() { return $GLOBALS['current_post'] ?? 0; }
 function current_user_can($c, $o = null) { return true; }
 function wp_enqueue_style(...$a) {}
 function shortcode_atts($d, $a, $s = '') { return array_merge($d, (array)$a); }
+function _n($single, $plural, $n, $d = null) { return $n == 1 ? $single : $plural; }
+function get_edit_post_link($id, $c = '') { return 'https://example.test/wp-admin/post.php?post=' . $id; }
+function get_the_date($f = '', $id = 0) { return '1 Jan 2024'; }
+function submit_button(...$a) {}
+function wp_nonce_field(...$a) {}
+function check_admin_referer(...$a) { return true; }
+function wp_safe_redirect($u) { $GLOBALS['redirect'] = $u; return true; }
+function add_query_arg($args, $url = '') {
+    if (!is_array($args)) { return $url; }
+    $q = [];
+    foreach ($args as $k => $v) { $q[] = $k . '=' . $v; }
+    return $url . (strpos((string)$url, '?') === false ? '?' : '&') . implode('&', $q);
+}
+function wp_nonce_url($u, $a = -1) { return $u . '&_wpnonce=test'; }
+
+/**
+ * A WP_Query stub covering only what find_unshared() asks for: published
+ * posts of given types, filtered by NOT EXISTS meta checks.
+ */
+class WP_Query {
+    public $posts = [];
+    public function __construct($args) {
+        $types = (array)($args['post_type'] ?? ['post']);
+        $limit = (int)($args['posts_per_page'] ?? -1);
+        $out = [];
+        foreach ($GLOBALS['posts'] as $id => $p) {
+            if (($args['post_status'] ?? 'publish') !== $p->post_status) continue;
+            if (!in_array($p->post_type, $types, true)) continue;
+            $keep = true;
+            foreach ((array)($args['meta_query'] ?? []) as $k => $clause) {
+                if ($k === 'relation' || !is_array($clause)) continue;
+                $val = $GLOBALS['meta'][$id][$clause['key']] ?? '';
+                if (($clause['compare'] ?? '') === 'NOT EXISTS' && $val !== '') { $keep = false; break; }
+            }
+            if ($keep) $out[] = (int)$id;
+        }
+        sort($out);
+        $this->posts = ($limit > 0) ? array_slice($out, 0, $limit) : $out;
+    }
+}
 
 /* Mocked HTTP: queue responses, record requests. */
 $GLOBALS['http_queue'] = [];

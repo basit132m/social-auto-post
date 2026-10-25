@@ -61,6 +61,16 @@ class SAP_Publisher {
 		add_action( 'transition_post_status', array( $this, 'on_transition' ), 10, 3 );
 		add_action( self::RETRY_HOOK, array( $this, 'process' ), 10, 1 );
 		add_action( 'admin_post_sap_share_now', array( $this, 'handle_share_now' ) );
+		add_action( 'admin_post_sap_backfill', array( $this, 'handle_backfill' ) );
+
+		// Bulk and row actions, on each post type the plugin is set to share.
+		foreach ( (array) SAP_Settings::get( 'post_types', array( 'post' ) ) as $type ) {
+			add_filter( "bulk_actions-edit-{$type}", array( $this, 'bulk_action' ) );
+			add_filter( "handle_bulk_actions-edit-{$type}", array( $this, 'handle_bulk_action' ), 10, 3 );
+		}
+		add_filter( 'post_row_actions', array( $this, 'row_action' ), 10, 2 );
+		add_filter( 'page_row_actions', array( $this, 'row_action' ), 10, 2 );
+		add_action( 'admin_notices', array( $this, 'bulk_notice' ) );
 	}
 
 	/* ------------------------------------------------------------- trigger */
@@ -378,6 +388,290 @@ class SAP_Publisher {
 			)
 		);
 		exit;
+	}
+
+	/* ----------------------------------------------------------- backfill */
+
+	/**
+	 * Published posts that have never been shared.
+	 *
+	 * This is what makes the plugin useful on a site that already has a back
+	 * catalogue: posts published before it was installed never saw a
+	 * `publish` transition, so nothing else would ever find them.
+	 *
+	 * @param int $limit Maximum to return; -1 for all.
+	 * @return int[] Post ids, oldest first.
+	 */
+	public function find_unshared( $limit = -1 ) {
+		$query = new WP_Query(
+			array(
+				'post_type'              => (array) SAP_Settings::get( 'post_types', array( 'post' ) ),
+				'post_status'            => 'publish',
+				'posts_per_page'         => (int) $limit,
+				'orderby'                => 'date',
+				'order'                  => 'ASC',
+				'fields'                 => 'ids',
+				'ignore_sticky_posts'    => true,
+				'no_found_rows'          => true,
+				'update_post_term_cache' => false,
+				// Never shared, and not opted out by the author.
+				'meta_query'             => array(
+					'relation' => 'AND',
+					array(
+						'key'     => self::META_TWEET_ID,
+						'compare' => 'NOT EXISTS',
+					),
+					array(
+						'key'     => self::META_SKIP,
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		return array_map( 'intval', (array) $query->posts );
+	}
+
+	/**
+	 * How many published posts are waiting to be shared.
+	 *
+	 * @return int
+	 */
+	public function count_unshared() {
+		return count( $this->find_unshared( -1 ) );
+	}
+
+	/**
+	 * Queue a batch of posts, spaced out over time.
+	 *
+	 * Spacing is the point. Firing fifty tweets in one minute is the fastest
+	 * way to trip X's rate limiter and look like a bot; spreading them out
+	 * costs nothing and keeps the account healthy.
+	 *
+	 * @param int[] $post_ids Posts to queue.
+	 * @param int   $spacing  Seconds between posts; null uses the setting.
+	 * @return array{queued:int,already:int,ineligible:int,last:int}
+	 */
+	public function queue_many( array $post_ids, $spacing = null ) {
+		if ( null === $spacing ) {
+			$spacing = (int) SAP_Settings::get( 'bulk_interval', 10 ) * MINUTE_IN_SECONDS;
+		}
+		$spacing = max( 0, (int) $spacing );
+
+		$result = array(
+			'queued'     => 0,
+			'already'    => 0,
+			'ineligible' => 0,
+			'last'       => 0,
+		);
+		$slot = 0;
+
+		foreach ( $post_ids as $post_id ) {
+			$post_id = (int) $post_id;
+			$post    = get_post( $post_id );
+
+			if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+				$result['ineligible']++;
+				continue;
+			}
+
+			if ( $this->already_shared( $post_id ) ) {
+				$result['already']++;
+				continue;
+			}
+
+			// Queueing the same post twice would put two cron rows on it. The
+			// second would be harmless — process() re-checks before posting —
+			// but a queue that lies about its own length is worth avoiding.
+			if ( wp_next_scheduled( self::RETRY_HOOK, array( $post_id ) ) ) {
+				$result['already']++;
+				continue;
+			}
+
+			$reason = $this->ineligible_reason( $post );
+			if ( null !== $reason ) {
+				update_post_meta( $post_id, self::META_STATUS, 'skipped' );
+				update_post_meta( $post_id, self::META_ERROR, $reason );
+				$result['ineligible']++;
+				continue;
+			}
+
+			$delay = $slot * $spacing;
+			update_post_meta( $post_id, self::META_STATUS, 'pending' );
+			update_post_meta( $post_id, self::META_ATTEMPTS, 0 );
+			delete_post_meta( $post_id, self::META_ERROR );
+			$this->schedule( $post_id, $delay );
+
+			$result['queued']++;
+			$result['last'] = time() + $delay;
+			$slot++;
+		}
+
+		if ( $result['queued'] > 0 ) {
+			SAP_Logger::log(
+				'info',
+				sprintf(
+					/* translators: 1: number of posts, 2: minutes between posts */
+					__( 'Queued %1$d existing posts to share, %2$d minutes apart.', 'social-auto-post' ),
+					$result['queued'],
+					(int) round( $spacing / MINUTE_IN_SECONDS )
+				)
+			);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * "Share existing posts" from the Backfill tab.
+	 *
+	 * @return void
+	 */
+	public function handle_backfill() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do that.', 'social-auto-post' ), 403 );
+		}
+		check_admin_referer( 'sap_backfill' );
+
+		$limit = isset( $_POST['limit'] ) ? (int) $_POST['limit'] : 0;
+		$ids   = $this->find_unshared( $limit > 0 ? $limit : -1 );
+		$result = $this->queue_many( $ids );
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'sap_notice'  => 'queued',
+					'sap_queued'  => (int) $result['queued'],
+					'sap_skipped' => (int) ( $result['already'] + $result['ineligible'] ),
+				),
+				SAP_Admin::page_url( 'backfill' )
+			)
+		);
+		exit;
+	}
+
+	/* ------------------------------------------------- bulk and row actions */
+
+	/**
+	 * Add "Share to X" to the posts list bulk menu.
+	 *
+	 * @param array $actions Existing bulk actions.
+	 * @return array
+	 */
+	public function bulk_action( $actions ) {
+		$actions['sap_share'] = __( 'Share to X', 'social-auto-post' );
+		return $actions;
+	}
+
+	/**
+	 * Run the bulk action.
+	 *
+	 * @param string $redirect Redirect URL.
+	 * @param string $action   Action name.
+	 * @param array  $post_ids Selected post ids.
+	 * @return string
+	 */
+	public function handle_bulk_action( $redirect, $action, $post_ids ) {
+		if ( 'sap_share' !== $action ) {
+			return $redirect;
+		}
+
+		$allowed = array();
+		foreach ( (array) $post_ids as $post_id ) {
+			if ( current_user_can( 'edit_post', (int) $post_id ) ) {
+				$allowed[] = (int) $post_id;
+			}
+		}
+
+		$result = $this->queue_many( $allowed );
+
+		return add_query_arg(
+			array(
+				'sap_queued'  => (int) $result['queued'],
+				'sap_skipped' => (int) ( $result['already'] + $result['ineligible'] ),
+			),
+			$redirect
+		);
+	}
+
+	/**
+	 * Add a "Share to X" link under each unshared published post.
+	 *
+	 * @param array   $actions Row actions.
+	 * @param WP_Post $post    The post.
+	 * @return array
+	 */
+	public function row_action( $actions, $post ) {
+		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+			return $actions;
+		}
+		if ( ! in_array( $post->post_type, (array) SAP_Settings::get( 'post_types', array( 'post' ) ), true ) ) {
+			return $actions;
+		}
+		if ( ! current_user_can( 'edit_post', $post->ID ) ) {
+			return $actions;
+		}
+
+		if ( $this->already_shared( $post->ID ) ) {
+			$url = (string) get_post_meta( $post->ID, self::META_TWEET_URL, true );
+			if ( '' !== $url ) {
+				$actions['sap_view'] = sprintf(
+					'<a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a>',
+					esc_url( $url ),
+					esc_html__( 'View on X', 'social-auto-post' )
+				);
+			}
+			return $actions;
+		}
+
+		$actions['sap_share'] = sprintf(
+			'<a href="%1$s">%2$s</a>',
+			esc_url(
+				wp_nonce_url(
+					admin_url( 'admin-post.php?action=sap_share_now&post=' . $post->ID ),
+					'sap_share_now_' . $post->ID
+				)
+			),
+			esc_html__( 'Share to X', 'social-auto-post' )
+		);
+
+		return $actions;
+	}
+
+	/**
+	 * Report the result of a bulk share on the posts list.
+	 *
+	 * @return void
+	 */
+	public function bulk_notice() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display only.
+		if ( ! isset( $_GET['sap_queued'] ) ) {
+			return;
+		}
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		$queued  = (int) $_GET['sap_queued'];
+		$skipped = isset( $_GET['sap_skipped'] ) ? (int) $_GET['sap_skipped'] : 0;
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		$message = sprintf(
+			/* translators: %d: number of posts queued */
+			_n( '%d post queued to share on X.', '%d posts queued to share on X.', $queued, 'social-auto-post' ),
+			$queued
+		);
+
+		if ( $skipped > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of posts skipped */
+				_n( '%d was skipped (already shared, or excluded by your rules).', '%d were skipped (already shared, or excluded by your rules).', $skipped, 'social-auto-post' ),
+				$skipped
+			);
+		}
+
+		printf(
+			'<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+			esc_attr( $queued > 0 ? 'success' : 'info' ),
+			esc_html( $message )
+		);
 	}
 
 	/* ------------------------------------------------------------- locking */
