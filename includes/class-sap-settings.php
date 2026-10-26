@@ -18,11 +18,75 @@ class SAP_Settings {
 	const OPTION_TOKEN     = 'sap_x_token';
 	const OPTION_USAGE     = 'sap_usage';
 
+	const OPTION_BILLING = 'sap_billing_blocked';
+
 	/**
-	 * X's Free API tier allows this many posts per calendar month. Surfaced in
-	 * the admin so the limit is visible before it bites, not after.
+	 * What X charges to create one post, in USD.
+	 *
+	 * X retired its free and subscription tiers in February 2026 and moved to
+	 * pay-per-use credits. A plain post is around $0.015 — but a post
+	 * containing a link is far more expensive, and every post this plugin
+	 * sends carries a link, because sharing the permalink is the entire point.
+	 * So the link rate is the one that matters here.
+	 *
+	 * These are published rates, not something the plugin can read from your
+	 * account. Override with the `sap_cost_per_post` filter if yours differ.
 	 */
-	const FREE_TIER_MONTHLY_POSTS = 500;
+	const COST_PER_POST_WITH_LINK = 0.20;
+
+	/**
+	 * Cost of one post as this site should estimate it.
+	 *
+	 * @return float USD.
+	 */
+	public static function cost_per_post() {
+		return (float) apply_filters( 'sap_cost_per_post', self::COST_PER_POST_WITH_LINK );
+	}
+
+	/**
+	 * Estimated spend for a number of posts, formatted for display.
+	 *
+	 * @param int $count Number of posts.
+	 * @return string e.g. "$10.00".
+	 */
+	public static function estimate( $count ) {
+		return '$' . number_format( self::cost_per_post() * (int) $count, 2 );
+	}
+
+	/* -------------------------------------------------------------- billing */
+
+	/**
+	 * Record that X is refusing posts for billing reasons.
+	 *
+	 * Kept separate from the per-post error because it is an account-level
+	 * problem: every post will fail the same way until it is resolved, so it
+	 * is worth saying once, loudly, rather than once per post in a log nobody
+	 * is reading.
+	 *
+	 * @param string $message What X said.
+	 * @return void
+	 */
+	public static function set_billing_blocked( $message ) {
+		update_option( self::OPTION_BILLING, (string) $message, false );
+	}
+
+	/**
+	 * The current billing problem, if any.
+	 *
+	 * @return string Empty when there is none.
+	 */
+	public static function billing_blocked() {
+		return (string) get_option( self::OPTION_BILLING, '' );
+	}
+
+	/**
+	 * Clear the billing warning, after a post succeeds.
+	 *
+	 * @return void
+	 */
+	public static function clear_billing_blocked() {
+		delete_option( self::OPTION_BILLING );
+	}
 
 	/**
 	 * Defaults, merged under whatever is stored. Adding a key here is all that

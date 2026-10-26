@@ -98,6 +98,26 @@ SAP_Publisher::instance()->process(7);
 check('401 marked failed', get_post_meta(7, '_sap_x_status', true), 'failed');
 check('401 not retried', count($GLOBALS['cron']), 0);
 
+echo "\n=== 9b. 402 out-of-credits: clear message, no retry, loud flag ===\n";
+reset_state(); make_post();
+sap_queue_http(402, json_encode(['title' => 'UsageCapExceeded', 'detail' => 'credits depleted']));
+SAP_Publisher::instance()->process(7);
+check('402 marked failed', get_post_meta(7, '_sap_x_status', true), 'failed');
+check('402 not retried', count($GLOBALS['cron']), 0);
+check('error explains it is billing', str_contains(get_post_meta(7, '_sap_x_error', true), 'out of API credits'), true);
+check('error says where to fix it', str_contains(get_post_meta(7, '_sap_x_error', true), 'Developer Console'), true);
+check('site-wide billing flag raised', SAP_Settings::billing_blocked() !== '', true);
+// ...and it clears itself once a post gets through again.
+sap_queue_http(201, $ok_body);
+make_post(21);
+SAP_Publisher::instance()->process(21);
+check('flag cleared after a success', SAP_Settings::billing_blocked(), '');
+
+echo "\n=== 9c. cost estimates reflect the link rate ===\n";
+check('one post', SAP_Settings::estimate(1), '$0.20');
+check('fifty posts', SAP_Settings::estimate(50), '$10.00');
+check('none', SAP_Settings::estimate(0), '$0.00');
+
 echo "\n=== 10. network drop IS retried (request may never have landed) ===\n";
 reset_state(); make_post();
 sap_queue_http(0, '');

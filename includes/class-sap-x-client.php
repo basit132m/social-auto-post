@@ -95,6 +95,14 @@ class SAP_X_Client {
 			);
 		}
 
+		// 402 Payment Required: the account is out of API credits. Retrying
+		// cannot help, and the fix is on X's billing page, not here.
+		if ( 402 === $status ) {
+			$message = __( 'X is refusing posts because your developer account is out of API credits. Posting to X is pay-per-use — add credits in the X Developer Console, under Billing.', 'social-auto-post' );
+			SAP_Settings::set_billing_blocked( $message );
+			return self::error( 'sap_credits_depleted', $message, false );
+		}
+
 		if ( 429 === $status ) {
 			return self::error(
 				'sap_rate_limited',

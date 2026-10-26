@@ -22,26 +22,42 @@ twice — is handled for you.
 
 ---
 
-## Honest limits, up front
+## What this costs
 
-**The plugin adds no limits of its own. X does.**
+**The plugin is free. Posting to X is not, and has not been since February 2026.**
 
-| | |
+X retired its free and subscription API tiers and moved to **pay-per-use
+credits**, bought in the X Developer Console. Published third-party rates:
+
+| | Approx. rate |
 |---|---|
-| X Free API tier | **500 posts per calendar month**, enforced by X |
-| Cost of this plugin | £0, forever — it is self-hosted code |
-| Third-party fees | none |
+| Create a post | $0.015 |
+| **Create a post containing a link** | **$0.20** |
+| Read a post | $0.005 |
 
-500 posts/month is roughly 16 a day, so for a normal blog it is effectively
-unlimited. But it is X's ceiling and no plugin can go around it: the limit is
-enforced at X's API, not here. The **Connection** tab shows a counter for the
-current month so you can see where you stand rather than discovering it when a
-post fails.
+The second row is the one that matters here. **Every post this plugin sends
+contains a link**, because sharing the permalink is the entire point — so
+budget around **$0.20 per article shared**, not the headline $0.015.
 
-You also need a **free X developer account** to get a Client ID and Secret.
-That is unavoidable — X has no way to post on your behalf without an app.
+In practice: 10 posts a month is about $2. A 50-article back catalogue is a
+one-off ~$10. The Existing posts tab estimates the bill before you commit to a
+batch, and the Connection tab shows a running estimate for the month.
 
----
+If your developer account has no credits, X rejects every post with
+**HTTP 402, "credits depleted"**. The plugin detects this, stops retrying
+(retrying cannot fix a billing problem), and raises a warning across the whole
+WordPress admin rather than burying it in a log.
+
+Rates above are from third-party trackers, not read from your account — your
+Developer Console is the authority on what you are actually charged. Override
+the estimate with the `sap_cost_per_post` filter if your rates differ.
+
+### If you would rather not pay
+
+X is now the expensive option. **Mastodon and Bluesky have open APIs with no
+credits, no approval process and no per-post cost** — genuinely free, with the
+same automation. The plugin's structure already anticipates this: `SAP_X_Client`
+is the only class that knows what X is.
 
 ## Setup
 
@@ -313,6 +329,12 @@ site. On a quiet site, set up a real cron job hitting `wp-cron.php` and add
 **403 on every post.** Your X app is read-only. Set App permissions to *Read and
 write* — then regenerate the connection, because permissions are baked into the
 token at authorization time.
+
+**402 "credits depleted" on every post.** Your X developer account has no API
+credits. Posting is pay-per-use; add credits in the Developer Console under
+Billing. Connecting the account and reading your profile can succeed while
+posting fails, because they are billed separately — so "Connected as @you" is
+not evidence that you can post.
 
 **"This authorization link has expired."** The 10-minute window lapsed, or the
 callback came back to a different hostname than it left from (`www` vs bare

@@ -286,6 +286,8 @@ class SAP_Publisher {
 			delete_post_meta( $post->ID, self::META_ERROR );
 
 			SAP_Settings::record_post();
+			// Whatever was wrong with billing evidently is not any more.
+			SAP_Settings::clear_billing_blocked();
 			SAP_Logger::log(
 				'success',
 				sprintf(

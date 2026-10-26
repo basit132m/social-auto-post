@@ -3,7 +3,7 @@
  * Plugin Name:       Social Auto Post
  * Plugin URI:        https://github.com/basit132m/social-auto-post
  * Description:       Automatically shares every post you publish to X (Twitter), then lists the resulting tweet back on the post itself.
- * Version:           0.2.0
+ * Version:           0.3.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            basit132m
@@ -16,7 +16,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SAP_VERSION', '0.2.0' );
+define( 'SAP_VERSION', '0.3.0' );
 define( 'SAP_FILE', __FILE__ );
 define( 'SAP_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SAP_URL', plugin_dir_url( __FILE__ ) );

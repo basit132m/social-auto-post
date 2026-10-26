@@ -53,6 +53,7 @@ class SAP_Admin {
 	public function hooks() {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+		add_action( 'admin_notices', array( $this, 'billing_notice' ) );
 		add_action( 'admin_post_sap_save_app', array( $this, 'save_app' ) );
 		add_action( 'admin_post_sap_save_settings', array( $this, 'save_settings' ) );
 		add_action( 'admin_post_sap_clear_log', array( $this, 'clear_log' ) );
@@ -202,7 +203,6 @@ class SAP_Admin {
 		$token     = SAP_Settings::token();
 		$connected = null !== $token;
 		$used      = SAP_Settings::usage_this_month();
-		$cap       = SAP_Settings::FREE_TIER_MONTHLY_POSTS;
 
 		echo '<div class="sap-card">';
 		echo '<h2>' . esc_html__( 'Step 1 — Your X app', 'social-auto-post' ) . '</h2>';
@@ -266,17 +266,24 @@ class SAP_Admin {
 		echo '<div class="sap-card">';
 		echo '<h2>' . esc_html__( 'This month', 'social-auto-post' ) . '</h2>';
 		printf(
-			'<p class="sap-usage"><strong>%1$d</strong> / %2$d %3$s</p>',
+			'<p class="sap-usage"><strong>%1$d</strong> %2$s</p>',
 			(int) $used,
-			(int) $cap,
-			esc_html__( 'posts sent to X', 'social-auto-post' )
+			esc_html(
+				_n( 'post sent to X', 'posts sent to X', $used, 'social-auto-post' )
+			)
 		);
-		$percent = $cap > 0 ? min( 100, (int) round( ( $used / $cap ) * 100 ) ) : 0;
 		printf(
-			'<div class="sap-meter"><span style="width:%d%%"></span></div>',
-			(int) $percent
+			'<p class="sap-muted">%s</p>',
+			esc_html(
+				sprintf(
+					/* translators: 1: estimated spend, 2: per-post rate */
+					__( 'Roughly %1$s of X API credits, at about %2$s per post.', 'social-auto-post' ),
+					SAP_Settings::estimate( $used ),
+					SAP_Settings::estimate( 1 )
+				)
+			)
 		);
-		echo '<p class="description">' . esc_html__( 'X\'s free API tier allows 500 posts per calendar month. This plugin adds no limit of its own; this counter just shows where you stand against X\'s.', 'social-auto-post' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'X retired its free API tier in February 2026; posting now draws on pay-per-use credits bought in the X Developer Console. Posts containing a link cost considerably more than plain ones, and every post this plugin sends carries your permalink. This is an estimate from published rates — your console is the authority on what you have actually spent.', 'social-auto-post' ) . '</p>';
 		echo '</div>';
 	}
 
@@ -497,7 +504,6 @@ class SAP_Admin {
 		$pending   = $publisher->find_unshared( -1 );
 		$total     = count( $pending );
 		$spacing   = (int) SAP_Settings::get( 'bulk_interval', 10 );
-		$remaining = max( 0, SAP_Settings::FREE_TIER_MONTHLY_POSTS - SAP_Settings::usage_this_month() );
 
 		echo '<div class="sap-card">';
 		echo '<h2>' . esc_html__( 'Share posts you published earlier', 'social-auto-post' ) . '</h2>';
@@ -523,19 +529,17 @@ class SAP_Admin {
 			return;
 		}
 
-		if ( $total > $remaining ) {
-			printf(
-				'<p class="notice notice-warning sap-inline-notice">%s</p>',
-				esc_html(
-					sprintf(
-						/* translators: 1: posts waiting, 2: posts left this month */
-						__( 'You have %1$d posts waiting but only %2$d left in this month\'s free X allowance. Share them in batches, or the rest will fail until the month rolls over.', 'social-auto-post' ),
-						$total,
-						$remaining
-					)
+		printf(
+			'<p class="notice notice-warning sap-inline-notice">%s</p>',
+			esc_html(
+				sprintf(
+					/* translators: 1: number of posts, 2: estimated total cost */
+					__( 'Sharing all %1$d would cost roughly %2$s in X API credits. Posting to X is pay-per-use, so a back catalogue is a real bill — set "How many" below to do it in affordable batches.', 'social-auto-post' ),
+					$total,
+					SAP_Settings::estimate( $total )
 				)
-			);
-		}
+			)
+		);
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		wp_nonce_field( 'sap_backfill' );
@@ -546,8 +550,14 @@ class SAP_Admin {
 			'<tr><th scope="row"><label for="sap_limit">%1$s</label></th><td><input type="number" min="1" max="%2$d" id="sap_limit" name="limit" value="%3$d" class="small-text"><p class="description">%4$s</p></td></tr>',
 			esc_html__( 'How many', 'social-auto-post' ),
 			(int) $total,
-			(int) min( $total, max( 1, $remaining ) ),
+			(int) min( $total, 10 ),
 			esc_html__( 'Oldest first. Run this again later for the rest.', 'social-auto-post' )
+		);
+		printf(
+			'<tr><th scope="row">%1$s</th><td>%2$s<p class="description">%3$s</p></td></tr>',
+			esc_html__( 'Estimated cost', 'social-auto-post' ),
+			esc_html( SAP_Settings::estimate( min( $total, 10 ) ) ),
+			esc_html__( 'For the batch size above, at published pay-per-use rates.', 'social-auto-post' )
 		);
 		printf(
 			'<tr><th scope="row">%1$s</th><td>%2$s</td></tr>',
@@ -671,6 +681,36 @@ class SAP_Admin {
 		echo '<input type="hidden" name="action" value="sap_clear_log">';
 		submit_button( __( 'Clear log', 'social-auto-post' ), 'secondary', 'submit', false );
 		echo '</form></div>';
+	}
+
+	/**
+	 * Warn across the admin when X is refusing posts over billing.
+	 *
+	 * This is deliberately not confined to the plugin's own screens: an
+	 * account that is out of credits silently stops sharing everything, and
+	 * the one place the owner is guaranteed not to be looking is the plugin
+	 * settings page.
+	 *
+	 * @return void
+	 */
+	public function billing_notice() {
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			return;
+		}
+
+		$message = SAP_Settings::billing_blocked();
+		if ( '' === $message ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-error"><p><strong>%1$s</strong> %2$s</p><p><a href="%3$s">%4$s</a> &nbsp; <a href="https://developer.x.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer">%5$s</a></p></div>',
+			esc_html__( 'Social Auto Post:', 'social-auto-post' ),
+			esc_html( $message ),
+			esc_url( self::page_url( 'log' ) ),
+			esc_html__( 'See the activity log', 'social-auto-post' ),
+			esc_html__( 'Open the X Developer Console', 'social-auto-post' )
+		);
 	}
 
 	/* --------------------------------------------------------- form handlers */
